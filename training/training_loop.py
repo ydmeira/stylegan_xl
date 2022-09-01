@@ -91,7 +91,7 @@ def save_image_grid(img, fname, drange, grid_size, stats_tfevents, kind):
         PIL.Image.fromarray(img, 'RGB').save(fname)
 
     if stats_tfevents is not None:
-        wandb.log({"snapshots": [wandb.Image(fname, caption=kind)]})
+        wandb.log({f"{kind}-snapshots": [wandb.Image(fname, caption=os.path.basename(fname))]})
         stats_tfevents.add_image(fname, img, dataformats='HWC')
 
 #----------------------------------------------------------------------------
