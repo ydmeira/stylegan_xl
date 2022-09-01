@@ -272,10 +272,10 @@ def training_loop(
         stats_jsonl = open(os.path.join(run_dir, 'stats.jsonl'), 'wt')
         try:
             import torch.utils.tensorboard as tensorboard
-            stats_tfevents = tensorboard.SummaryWriter(run_dir)
-            # reference https://learnopencv.com/experiment-logging-with-tensorboard-and-wandb/
             # Add wandb tensorboard sync
+            # reference https://learnopencv.com/experiment-logging-with-tensorboard-and-wandb/
             wandb.init(project=project_name, config=kwargs, sync_tensorboard=True)
+            stats_tfevents = tensorboard.SummaryWriter(run_dir)
         except ImportError as err:
             print('Skipping tfevents export:', err)
     
