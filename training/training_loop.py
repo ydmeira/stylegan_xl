@@ -72,7 +72,7 @@ def setup_snapshot_image_grid(training_set, random_seed=0, gw=None, gh=None):
 
 #----------------------------------------------------------------------------
 
-def save_image_grid(img, fname, drange, grid_size, stats_tfevents):
+def save_image_grid(img, fname, drange, grid_size, stats_tfevents, kind):
     lo, hi = drange
     img = np.asarray(img, dtype=np.float32)
     img = (img - lo) * (255 / (hi - lo))
@@ -91,6 +91,7 @@ def save_image_grid(img, fname, drange, grid_size, stats_tfevents):
         PIL.Image.fromarray(img, 'RGB').save(fname)
 
     if stats_tfevents is not None:
+        wandb.log({"snapshots": [wandb.Image(fname, caption=kind)]})
         stats_tfevents.add_image(fname, img, dataformats='HWC')
 
 #----------------------------------------------------------------------------
@@ -274,7 +275,7 @@ def training_loop(
             import torch.utils.tensorboard as tensorboard
             # Add wandb tensorboard sync
             # reference https://learnopencv.com/experiment-logging-with-tensorboard-and-wandb/
-            wandb.init(project=project_name, config=kwargs, sync_tensorboard=True)
+            wandb.init(project=project_name, config=kwargs)
             stats_tfevents = tensorboard.SummaryWriter(run_dir)
         except ImportError as err:
             print('Skipping tfevents export:', err)
@@ -286,13 +287,13 @@ def training_loop(
     if rank == 0:
         print('Exporting sample images...')
         grid_size, images, labels = setup_snapshot_image_grid(training_set=training_set)
-        save_image_grid(images, os.path.join(run_dir, 'reals.png'), drange=[0,255], grid_size=grid_size, stats_tfevents=stats_tfevents)
+        save_image_grid(images, os.path.join(run_dir, 'reals.png'), drange=[0,255], grid_size=grid_size, stats_tfevents=stats_tfevents, kind="reals")
 
         grid_z = torch.randn([labels.shape[0], G.z_dim], device=device).split(batch_gpu)
         grid_c = torch.from_numpy(labels).to(device).split(batch_gpu)
         images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
 
-        save_image_grid(images, os.path.join(run_dir, 'fakes_init.png'), drange=[-1,1], grid_size=grid_size, stats_tfevents=stats_tfevents)
+        save_image_grid(images, os.path.join(run_dir, 'fakes_init.png'), drange=[-1,1], grid_size=grid_size, stats_tfevents=stats_tfevents, kind="fakes")
 
     # Train.
     if rank == 0:
@@ -434,7 +435,7 @@ def training_loop(
         # Save image snapshot.
         if (rank == 0) and (image_snapshot_ticks is not None) and (done or cur_tick % image_snapshot_ticks == 0):
             images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
-            save_image_grid(images, os.path.join(run_dir, f'fakes{cur_nimg//1000:06d}.png'), drange=[-1,1], grid_size=grid_size, stats_tfevents=stats_tfevents)
+            save_image_grid(images, os.path.join(run_dir, f'fakes{cur_nimg//1000:06d}.png'), drange=[-1,1], grid_size=grid_size, stats_tfevents=stats_tfevents, kind="fakes")
 
         # Save network snapshot.
         snapshot_pkl = None
@@ -523,10 +524,11 @@ def training_loop(
             stats_jsonl.write(json.dumps(fields) + '\n')
             stats_jsonl.flush()
         
-        #TODO! Change here
         if stats_tfevents is not None:
             global_step = int(cur_nimg / 1e3)
             walltime = timestamp - start_time
+            wandb.log(stats_dict)
+            wandb.log(stats_metrics)
             for name, value in stats_dict.items():
                 stats_tfevents.add_scalar(name, value.mean, global_step=global_step, walltime=walltime)
             for name, value in stats_metrics.items():
