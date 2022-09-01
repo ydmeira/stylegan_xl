@@ -20,6 +20,7 @@ import torch
 import torch.nn.functional as F
 import dnnlib
 import pickle
+import wandb
 from torch_utils import misc
 from torch_utils import training_stats
 from torch_utils.ops import conv2d_gradfix
@@ -71,7 +72,7 @@ def setup_snapshot_image_grid(training_set, random_seed=0, gw=None, gh=None):
 
 #----------------------------------------------------------------------------
 
-def save_image_grid(img, fname, drange, grid_size):
+def save_image_grid(img, fname, drange, grid_size, stats_tfevents):
     lo, hi = drange
     img = np.asarray(img, dtype=np.float32)
     img = (img - lo) * (255 / (hi - lo))
@@ -89,6 +90,9 @@ def save_image_grid(img, fname, drange, grid_size):
     if C == 3:
         PIL.Image.fromarray(img, 'RGB').save(fname)
 
+    if stats_tfevents is not None:
+        stats_tfevents.add_image(fname, img, dataformats='HWC')
+
 #----------------------------------------------------------------------------
 
 def weight_reset(m):
@@ -98,40 +102,43 @@ def weight_reset(m):
 #----------------------------------------------------------------------------
 
 def training_loop(
-    run_dir                 = '.',      # Output directory.
-    training_set_kwargs     = {},       # Options for training set.
-    data_loader_kwargs      = {},       # Options for torch.utils.data.DataLoader.
-    G_kwargs                = {},       # Options for generator network.
-    D_kwargs                = {},       # Options for discriminator network.
-    G_opt_kwargs            = {},       # Options for generator optimizer.
-    D_opt_kwargs            = {},       # Options for discriminator optimizer.
-    augment_kwargs          = None,     # Options for augmentation pipeline. None = disable.
-    loss_kwargs             = {},       # Options for loss function.
-    metrics                 = [],       # Metrics to evaluate during training.
-    random_seed             = 0,        # Global random seed.
-    num_gpus                = 1,        # Number of GPUs participating in the training.
-    rank                    = 0,        # Rank of the current process in [0, num_gpus[.
-    batch_size              = 4,        # Total batch size for one training iteration. Can be larger than batch_gpu * num_gpus.
-    batch_gpu               = 4,        # Number of samples processed at a time by one GPU.
-    ema_kimg                = 10,       # Half-life of the exponential moving average (EMA) of generator weights.
-    ema_rampup              = 0.05,     # EMA ramp-up coefficient. None = no rampup.
-    G_reg_interval          = 4,     # How often to perform regularization for G? None = disable lazy regularization.
-    D_reg_interval          = 16,       # How often to perform regularization for D? None = disable lazy regularization.
-    augment_p               = 0,        # Initial value of augmentation probability.
-    ada_target              = None,     # ADA target value. None = fixed p.
-    ada_interval            = 4,        # How often to perform ADA adjustment?
-    ada_kimg                = 500,      # ADA adjustment speed, measured in how many kimg it takes for p to increase/decrease by one unit.
-    total_kimg              = 25000,    # Total length of the training, measured in thousands of real images.
-    kimg_per_tick           = 4,        # Progress snapshot interval.
-    image_snapshot_ticks    = 50,       # How often to save image snapshots? None = disable.
-    network_snapshot_ticks  = 50,       # How often to save network snapshots? None = disable.
-    resume_pkl              = None,     # Network pickle to resume training from.
-    resume_kimg             = 0,        # First kimg to report when resuming training.
-    cudnn_benchmark         = True,     # Enable torch.backends.cudnn.benchmark?
-    abort_fn                = None,     # Callback function for determining whether to abort training. Must return consistent results across ranks.
-    progress_fn             = None,     # Callback function for updating training progress. Called for all ranks.
-    restart_every           = -1,       # Time interval in seconds to exit code
+    project_name            = 'StyleGanXL', # Name of the project to train.
+    run_dir                 = '.',          # Output directory.
+    training_set_kwargs     = {},           # Options for training set.
+    data_loader_kwargs      = {},           # Options for torch.utils.data.DataLoader.
+    G_kwargs                = {},           # Options for generator network.
+    D_kwargs                = {},           # Options for discriminator network.
+    G_opt_kwargs            = {},           # Options for generator optimizer.
+    D_opt_kwargs            = {},           # Options for discriminator optimizer.
+    augment_kwargs          = None,         # Options for augmentation pipeline. None = disable.
+    loss_kwargs             = {},           # Options for loss function.
+    metrics                 = [],           # Metrics to evaluate during training.
+    random_seed             = 0,            # Global random seed.
+    num_gpus                = 1,            # Number of GPUs participating in the training.
+    rank                    = 0,            # Rank of the current process in [0, num_gpus[.
+    batch_size              = 4,            # Total batch size for one training iteration. Can be larger than batch_gpu * num_gpus.
+    batch_gpu               = 4,            # Number of samples processed at a time by one GPU.
+    ema_kimg                = 10,           # Half-life of the exponential moving average (EMA) of generator weights.
+    ema_rampup              = 0.05,         # EMA ramp-up coefficient. None = no rampup.
+    G_reg_interval          = 4,            # How often to perform regularization for G? None = disable lazy regularization.
+    D_reg_interval          = 16,           # How often to perform regularization for D? None = disable lazy regularization.
+    augment_p               = 0,            # Initial value of augmentation probability.
+    ada_target              = None,         # ADA target value. None = fixed p.
+    ada_interval            = 4,            # How often to perform ADA adjustment?
+    ada_kimg                = 500,          # ADA adjustment speed, measured in how many kimg it takes for p to increase/decrease by one unit.
+    total_kimg              = 25000,        # Total length of the training, measured in thousands of real images.
+    kimg_per_tick           = 4,            # Progress snapshot interval.
+    image_snapshot_ticks    = 50,           # How often to save image snapshots? None = disable.
+    network_snapshot_ticks  = 50,           # How often to save network snapshots? None = disable.
+    resume_pkl              = None,         # Network pickle to resume training from.
+    resume_kimg             = 0,            # First kimg to report when resuming training.
+    cudnn_benchmark         = True,         # Enable torch.backends.cudnn.benchmark?
+    abort_fn                = None,         # Callback function for determining whether to abort training. Must return consistent results across ranks.
+    progress_fn             = None,         # Callback function for updating training progress. Called for all ranks.
+    restart_every           = -1,           # Time interval in seconds to exit code
 ):
+    # Get parameters as dict.
+    kwargs = locals().copy()
     # Initialize.
     start_time = time.time()
     device = torch.device('cuda', rank)
@@ -261,13 +268,13 @@ def training_loop(
     if rank == 0:
         print('Exporting sample images...')
         grid_size, images, labels = setup_snapshot_image_grid(training_set=training_set)
-        save_image_grid(images, os.path.join(run_dir, 'reals.png'), drange=[0,255], grid_size=grid_size)
+        save_image_grid(images, os.path.join(run_dir, 'reals.png'), drange=[0,255], grid_size=grid_size, stats_tfevents=stats_tfevents)
 
         grid_z = torch.randn([labels.shape[0], G.z_dim], device=device).split(batch_gpu)
         grid_c = torch.from_numpy(labels).to(device).split(batch_gpu)
         images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
 
-        save_image_grid(images, os.path.join(run_dir, 'fakes_init.png'), drange=[-1,1], grid_size=grid_size)
+        save_image_grid(images, os.path.join(run_dir, 'fakes_init.png'), drange=[-1,1], grid_size=grid_size, stats_tfevents=stats_tfevents)
 
     # Initialize logs.
     if rank == 0:
@@ -281,6 +288,9 @@ def training_loop(
         try:
             import torch.utils.tensorboard as tensorboard
             stats_tfevents = tensorboard.SummaryWriter(run_dir)
+            # reference https://learnopencv.com/experiment-logging-with-tensorboard-and-wandb/
+            # Add wandb tensorboard sync
+            wandb.init(project=project_name, config=kwargs, sync_tensorboard=True)
         except ImportError as err:
             print('Skipping tfevents export:', err)
 
@@ -424,7 +434,7 @@ def training_loop(
         # Save image snapshot.
         if (rank == 0) and (image_snapshot_ticks is not None) and (done or cur_tick % image_snapshot_ticks == 0):
             images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
-            save_image_grid(images, os.path.join(run_dir, f'fakes{cur_nimg//1000:06d}.png'), drange=[-1,1], grid_size=grid_size)
+            save_image_grid(images, os.path.join(run_dir, f'fakes{cur_nimg//1000:06d}.png'), drange=[-1,1], grid_size=grid_size, stats_tfevents=stats_tfevents)
 
         # Save network snapshot.
         snapshot_pkl = None
@@ -512,6 +522,8 @@ def training_loop(
             fields = dict(stats_dict, timestamp=timestamp)
             stats_jsonl.write(json.dumps(fields) + '\n')
             stats_jsonl.flush()
+        
+        #TODO! Change here
         if stats_tfevents is not None:
             global_step = int(cur_nimg / 1e3)
             walltime = timestamp - start_time

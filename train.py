@@ -175,6 +175,7 @@ def parse_comma_separated_list(s):
 @click.option('--up_factor',    help='Up sampling factor of superres head', type=click.IntRange(min=2), default=2, show_default=True)
 
 def main(**kwargs):
+    """ StyleGAN-XL: Generative Adversarial Networks with Local and Global Features for Big Data """
     # Initialize config.
     opts = dnnlib.EasyDict(kwargs)  # Command line arguments
     c = dnnlib.EasyDict()  # Main config dict.
@@ -260,6 +261,8 @@ def main(**kwargs):
     desc = f'{opts.cfg:s}-{dataset_name:s}-gpus{c.num_gpus:d}-batch{c.batch_size:d}'
     if opts.desc is not None:
         desc += f'-{opts.desc}'
+
+    c.project_name = desc
 
     ##################################
     ########## StyleGAN-XL ###########
