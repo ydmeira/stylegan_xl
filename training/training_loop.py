@@ -72,7 +72,7 @@ def setup_snapshot_image_grid(training_set, random_seed=0, gw=None, gh=None):
 
 #----------------------------------------------------------------------------
 
-def save_image_grid(img, fname, drange, grid_size, stats_tfevents, kind):
+def save_image_grid(img, fname, drange, grid_size):
     lo, hi = drange
     img = np.asarray(img, dtype=np.float32)
     img = (img - lo) * (255 / (hi - lo))
@@ -90,9 +90,7 @@ def save_image_grid(img, fname, drange, grid_size, stats_tfevents, kind):
     if C == 3:
         PIL.Image.fromarray(img, 'RGB').save(fname)
 
-    if stats_tfevents is not None:
-        wandb.log({f"{kind}-snapshots": [wandb.Image(fname, caption=os.path.basename(fname))]})
-        stats_tfevents.add_image(fname, img, dataformats='HWC')
+    return fname
 
 #----------------------------------------------------------------------------
 
@@ -287,13 +285,24 @@ def training_loop(
     if rank == 0:
         print('Exporting sample images...')
         grid_size, images, labels = setup_snapshot_image_grid(training_set=training_set)
-        save_image_grid(images, os.path.join(run_dir, 'reals.png'), drange=[0,255], grid_size=grid_size, stats_tfevents=stats_tfevents, kind="reals")
+        fsname = save_image_grid(images, os.path.join(run_dir, 'reals.png'), drange=[0,255], grid_size=grid_size)
+
+        wandb.log(
+            {f"reals-snapshots": [wandb.Image(fsname, caption=os.path.basename(fsname))]},
+            step=global_step, commit=False
+        )
 
         grid_z = torch.randn([labels.shape[0], G.z_dim], device=device).split(batch_gpu)
         grid_c = torch.from_numpy(labels).to(device).split(batch_gpu)
         images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
 
-        save_image_grid(images, os.path.join(run_dir, 'fakes_init.png'), drange=[-1,1], grid_size=grid_size, stats_tfevents=stats_tfevents, kind="fakes")
+        fsname = save_image_grid(images, os.path.join(run_dir, 'fakes_init.png'), drange=[-1,1], grid_size=grid_size)
+
+        wandb.log(
+            {f"fakes-snapshots": [wandb.Image(fsname, caption=os.path.basename(fsname))]},
+            step=global_step, commit=True
+        )
+
 
     # Train.
     if rank == 0:
@@ -308,12 +317,13 @@ def training_loop(
         torch.distributed.barrier()  # ensure all processes received this info
     cur_nimg = __CUR_NIMG__.item()
     cur_tick = __CUR_TICK__.item()
+    global_step = cur_nimg // 1e3
     tick_start_nimg = cur_nimg
     tick_start_time = time.time()
     maintenance_time = tick_start_time - start_time
     batch_idx = __BATCH_IDX__.item()
     if progress_fn is not None:
-        progress_fn(cur_nimg // 1000, total_kimg)
+        progress_fn(global_step, total_kimg)
     augment_p = __AUGMENT_P__
     if augment_pipe is not None:
         augment_pipe.p.copy_(augment_p)
@@ -381,6 +391,7 @@ def training_loop(
 
         # Update state.
         cur_nimg += batch_size
+        global_step = cur_nimg // 1e3
         batch_idx += 1
 
         # Execute ADA heuristic.
@@ -435,7 +446,11 @@ def training_loop(
         # Save image snapshot.
         if (rank == 0) and (image_snapshot_ticks is not None) and (done or cur_tick % image_snapshot_ticks == 0):
             images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
-            save_image_grid(images, os.path.join(run_dir, f'fakes{cur_nimg//1000:06d}.png'), drange=[-1,1], grid_size=grid_size, stats_tfevents=stats_tfevents, kind="fakes")
+            fsname = save_image_grid(images, os.path.join(run_dir, f'fakes{global_step:06d}.png'), drange=[-1,1], grid_size=grid_size)
+            wandb.log(
+                {f"fakes-snapshots": [wandb.Image(fsname, caption=os.path.basename(fsname))]},
+                step=global_step
+            )
 
         # Save network snapshot.
         snapshot_pkl = None
@@ -525,17 +540,18 @@ def training_loop(
             stats_jsonl.flush()
         
         if stats_tfevents is not None:
-            global_step = int(cur_nimg / 1e3)
             walltime = timestamp - start_time
-            wandb.log(stats_dict)
-            wandb.log(stats_metrics)
+            full_dict = stats_dict.update(
+                {f"Metrics/{key}": val for key, val in stats_metrics.items()}
+            )
+            wandb.log(full_dict, step=global_step)
             for name, value in stats_dict.items():
                 stats_tfevents.add_scalar(name, value.mean, global_step=global_step, walltime=walltime)
             for name, value in stats_metrics.items():
                 stats_tfevents.add_scalar(f'Metrics/{name}', value, global_step=global_step, walltime=walltime)
             stats_tfevents.flush()
         if progress_fn is not None:
-            progress_fn(cur_nimg // 1000, total_kimg)
+            progress_fn(global_step, total_kimg)
 
         # Update state.
         cur_tick += 1
