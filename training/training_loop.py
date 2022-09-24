@@ -25,11 +25,23 @@ from torch_utils import misc
 from torch_utils import training_stats
 from torch_utils.ops import conv2d_gradfix
 from torch_utils.ops import grid_sample_gradfix
+from easydict import EasyDict as edict
 
 import legacy
 from metrics import metric_main
 
 #----------------------------------------------------------------------------
+
+def edict2dict(edict_obj):
+  dict_obj = {}
+
+  for key, vals in edict_obj.items():
+    if isinstance(vals, edict):
+      dict_obj[key] = edict2dict(vals)
+    else:
+      dict_obj[key] = vals
+
+  return dict_obj 
 
 def setup_snapshot_image_grid(training_set, random_seed=0, gw=None, gh=None):
     rnd = np.random.RandomState(random_seed)
@@ -541,7 +553,8 @@ def training_loop(
         
         if stats_tfevents is not None:
             walltime = timestamp - start_time
-            full_dict = stats_dict | {f"Metrics/{key}": val for key, val in stats_metrics.items()}
+            
+            full_dict = edict2dict(stats_dict) | {f"Metrics/{key}": val for key, val in stats_metrics.items()}
             wandb.log(full_dict, step=int(global_step))
             for name, value in stats_dict.items():
                 stats_tfevents.add_scalar(name, value.mean, global_step=global_step, walltime=walltime)
