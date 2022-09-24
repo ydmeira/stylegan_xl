@@ -277,31 +277,6 @@ def training_loop(
             stats_tfevents = tensorboard.SummaryWriter(run_dir)
         except ImportError as err:
             print('Skipping tfevents export:', err)
-    
-    # Export sample images.
-    grid_size = None
-    grid_z = None
-    grid_c = None
-    if rank == 0:
-        print('Exporting sample images...')
-        grid_size, images, labels = setup_snapshot_image_grid(training_set=training_set)
-        fsname = save_image_grid(images, os.path.join(run_dir, 'reals.png'), drange=[0,255], grid_size=grid_size)
-
-        wandb.log(
-            {f"reals-snapshots": [wandb.Image(fsname, caption=os.path.basename(fsname))]},
-            step=global_step, commit=False
-        )
-
-        grid_z = torch.randn([labels.shape[0], G.z_dim], device=device).split(batch_gpu)
-        grid_c = torch.from_numpy(labels).to(device).split(batch_gpu)
-        images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
-
-        fsname = save_image_grid(images, os.path.join(run_dir, 'fakes_init.png'), drange=[-1,1], grid_size=grid_size)
-
-        wandb.log(
-            {f"fakes-snapshots": [wandb.Image(fsname, caption=os.path.basename(fsname))]},
-            step=global_step, commit=True
-        )
 
 
     # Train.
@@ -329,6 +304,31 @@ def training_loop(
         augment_pipe.p.copy_(augment_p)
     if hasattr(loss, 'pl_mean'):
         loss.pl_mean.copy_(__PL_MEAN__)
+
+    # Export sample images.
+    grid_size = None
+    grid_z = None
+    grid_c = None
+    if rank == 0:
+        print('Exporting sample images...')
+        grid_size, images, labels = setup_snapshot_image_grid(training_set=training_set)
+        fsname = save_image_grid(images, os.path.join(run_dir, 'reals.png'), drange=[0,255], grid_size=grid_size)
+
+        wandb.log(
+            {f"reals-snapshots": [wandb.Image(fsname, caption=os.path.basename(fsname))]},
+            step=global_step, commit=False
+        )
+
+        grid_z = torch.randn([labels.shape[0], G.z_dim], device=device).split(batch_gpu)
+        grid_c = torch.from_numpy(labels).to(device).split(batch_gpu)
+        images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
+
+        fsname = save_image_grid(images, os.path.join(run_dir, 'fakes_init.png'), drange=[-1,1], grid_size=grid_size)
+
+        wandb.log(
+            {f"fakes-snapshots": [wandb.Image(fsname, caption=os.path.basename(fsname))]},
+            step=global_step, commit=True
+        )
     while True:
 
         with torch.autograd.profiler.record_function('data_fetch'):
