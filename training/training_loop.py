@@ -554,7 +554,11 @@ def training_loop(
         if stats_tfevents is not None:
             walltime = timestamp - start_time
             
-            full_dict = edict2dict(stats_dict) | {f"Metrics/{key}": val for key, val in stats_metrics.items()}
+            full_dict = {
+                **edict2dict(stats_dict),
+                **{f"Metrics/{key}": val for key, val in stats_metrics.items()}
+            }
+            
             wandb.log(full_dict, step=int(global_step))
             for name, value in stats_dict.items():
                 stats_tfevents.add_scalar(name, value.mean, global_step=global_step, walltime=walltime)
