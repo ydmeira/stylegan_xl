@@ -316,7 +316,7 @@ def training_loop(
 
         wandb.log(
             {f"reals-snapshots": [wandb.Image(fsname, caption=os.path.basename(fsname))]},
-            step=global_step, commit=False
+            step=int(global_step), commit=False
         )
 
         grid_z = torch.randn([labels.shape[0], G.z_dim], device=device).split(batch_gpu)
@@ -327,7 +327,7 @@ def training_loop(
 
         wandb.log(
             {f"fakes-snapshots": [wandb.Image(fsname, caption=os.path.basename(fsname))]},
-            step=global_step, commit=True
+            step=int(global_step), commit=True
         )
     while True:
 
@@ -449,7 +449,7 @@ def training_loop(
             fsname = save_image_grid(images, os.path.join(run_dir, f'fakes{global_step:06d}.png'), drange=[-1,1], grid_size=grid_size)
             wandb.log(
                 {f"fakes-snapshots": [wandb.Image(fsname, caption=os.path.basename(fsname))]},
-                step=global_step
+                step=int(global_step)
             )
 
         # Save network snapshot.
@@ -544,7 +544,7 @@ def training_loop(
             full_dict = stats_dict.update(
                 {f"Metrics/{key}": val for key, val in stats_metrics.items()}
             )
-            wandb.log(full_dict, step=global_step)
+            wandb.log(full_dict, step=int(global_step))
             for name, value in stats_dict.items():
                 stats_tfevents.add_scalar(name, value.mean, global_step=global_step, walltime=walltime)
             for name, value in stats_metrics.items():
