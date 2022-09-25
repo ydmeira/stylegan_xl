@@ -304,7 +304,7 @@ def training_loop(
         torch.distributed.barrier()  # ensure all processes received this info
     cur_nimg = __CUR_NIMG__.item()
     cur_tick = __CUR_TICK__.item()
-    global_step = cur_nimg // 1e3
+    global_step = int(cur_nimg // 1e3)
     tick_start_nimg = cur_nimg
     tick_start_time = time.time()
     maintenance_time = tick_start_time - start_time
@@ -328,7 +328,7 @@ def training_loop(
 
         wandb.log(
             {f"reals-snapshots": [wandb.Image(fsname, caption=os.path.basename(fsname))]},
-            step=int(global_step), commit=False
+            step=global_step, commit=False
         )
 
         grid_z = torch.randn([labels.shape[0], G.z_dim], device=device).split(batch_gpu)
@@ -338,8 +338,8 @@ def training_loop(
         fsname = save_image_grid(images, os.path.join(run_dir, 'fakes_init.png'), drange=[-1,1], grid_size=grid_size)
 
         wandb.log(
-            {f"fakes-snapshots": [wandb.Image(fsname, caption=os.path.basename(fsname))]},
-            step=int(global_step), commit=True
+            {f"fakes-init-snapshots": [wandb.Image(fsname, caption=os.path.basename(fsname))]},
+            step=global_step, commit=True
         )
     while True:
 
@@ -403,7 +403,7 @@ def training_loop(
 
         # Update state.
         cur_nimg += batch_size
-        global_step = cur_nimg // 1e3
+        global_step = int(cur_nimg // 1e3)
         batch_idx += 1
 
         # Execute ADA heuristic.
@@ -458,10 +458,10 @@ def training_loop(
         # Save image snapshot.
         if (rank == 0) and (image_snapshot_ticks is not None) and (done or cur_tick % image_snapshot_ticks == 0):
             images = torch.cat([G_ema(z=z, c=c, noise_mode='const').cpu() for z, c in zip(grid_z, grid_c)]).numpy()
-            fsname = save_image_grid(images, os.path.join(run_dir, f'fakes{int(global_step):06d}.png'), drange=[-1,1], grid_size=grid_size)
+            fsname = save_image_grid(images, os.path.join(run_dir, f'fakes{global_step:06d}.png'), drange=[-1,1], grid_size=grid_size)
             wandb.log(
                 {f"fakes-snapshots": [wandb.Image(fsname, caption=os.path.basename(fsname))]},
-                step=int(global_step)
+                step=global_step
             )
 
         # Save network snapshot.
@@ -558,8 +558,8 @@ def training_loop(
                 **edict2dict(stats_dict),
                 **{f"Metrics/{key}": val for key, val in stats_metrics.items()}
             }
-            
-            wandb.log(full_dict, step=int(global_step))
+
+            wandb.log(full_dict, step=global_step)
             for name, value in stats_dict.items():
                 stats_tfevents.add_scalar(name, value.mean, global_step=global_step, walltime=walltime)
             for name, value in stats_metrics.items():
