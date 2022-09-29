@@ -286,6 +286,9 @@ def training_loop(
             # Add wandb tensorboard sync
             # reference https://learnopencv.com/experiment-logging-with-tensorboard-and-wandb/
             wandb.init(project=project_name, config=kwargs)
+            model_artifact = wandb.Artifact(
+                    "trained-model", type="model",
+                    description="Trained NN model")
             stats_tfevents = tensorboard.SummaryWriter(run_dir)
         except ImportError as err:
             print('Skipping tfevents export:', err)
@@ -505,6 +508,9 @@ def training_loop(
 
             with open(snapshot_pkl, 'wb') as f:
                 dill.dump(snapshot_data, f)
+                model_artifact.add_file(snapshot_data)
+                model_artifact.save()
+                
 
         # Evaluate metrics.
         # if (snapshot_data is not None) and (len(metrics) > 0):
