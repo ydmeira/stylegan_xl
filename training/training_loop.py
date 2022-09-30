@@ -491,7 +491,7 @@ def training_loop(
                         dill.dump(snapshot_data, f)
 
         # Save Checkpoint if needed
-        if (rank == 0) and (restart_every > 0) and (network_snapshot_ticks is not None) and (
+        if (rank == 0) and (network_snapshot_ticks is not None) and (
                 done or cur_tick % network_snapshot_ticks == 0):
             snapshot_pkl = misc.get_ckpt_path(run_dir)
             # save as tensors to avoid error for multi GPU
