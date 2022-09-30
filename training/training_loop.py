@@ -506,7 +506,7 @@ def training_loop(
             with open(snapshot_pkl, 'wb') as f:
                 dill.dump(snapshot_data, f)
                 model_artifact = wandb.Artifact(
-                    f"trained-model:tick{cur_tick}", type="model",
+                    f"trained-model-tick{cur_tick}", type="model",
                     description="Model snapshot")
                 model_artifact.add_file(snapshot_pkl)
                 model_artifact.save()
