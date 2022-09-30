@@ -508,7 +508,7 @@ def training_loop(
 
             with open(snapshot_pkl, 'wb') as f:
                 dill.dump(snapshot_data, f)
-                model_artifact.add_file(snapshot_data)
+                model_artifact.add_file(snapshot_pkl)
                 model_artifact.save()
                 
 
